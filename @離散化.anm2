@@ -7,7 +7,7 @@
 --track@dy:Y基準,-500,500,0,0.01
 --track@dz:Z基準,-500,500,0,0.01
 if baseX > 0.01 then
-  obj.ox = obj.x - (obj.x+obj.ox-dx) % baseX
+  obj.ox = obj.ox - (obj.x+obj.ox-dx) % baseX
 end
 if baseY > 0.01 then
   obj.oy = obj.oy - (obj.oy+obj.y-dy) % baseY
@@ -90,4 +90,5 @@ else -- 等差数列 d + n*baseにおいて最も近いサイズにする
   end
   obj.zoom = math.max(0, obj.zoom - ((obj.zoom*obj.getvalue("zoom")-d) % base)/obj.getvalue("zoom"))
 end
+
 
