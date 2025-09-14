@@ -1,0 +1,99 @@
+@登録
+--information:登録@論理で色　v0
+--track@index:登録番号,-1,23,-1,1
+--check@viewIndex:番号を表示,0
+--value@textSize:テキストサイズ,20
+--[[pixelshader@SetColor
+
+float4 decode_col(float code, float a) {
+    uint col = (uint)code;
+    float3 rgb = float3(
+        (col >> 16) & 0xFF,
+        (col >> 8) & 0xFF,
+        col & 0xFF
+    ) / 255.0;
+    return float4(rgb, a);
+}
+Texture2D tex : register(t0);
+cbuffer constant0 : register(b0) {
+  float col;
+};
+SamplerState samLinear : register(s0);
+struct PS_INPUT {
+  float4 pos : SV_Position;
+  float2 uv : TEXCOORD0;
+};
+float4 SetColor(PS_INPUT input) : SV_Target {
+    return decode_col(col, tex.Sample(samLinear, input.uv).a);
+}
+]]
+col = 2^index
+obj.pixelshader("SetColor", "object", "object", {
+  col
+})
+obj.draw()
+if(viewIndex == 1) then
+  obj.load("text", "<s"..textSize..">"..index)
+  obj.draw()
+else
+end
+
+@適応
+--information:色適応@論理で色　v0
+--track@index1:適応番号1,0,23,0,1
+--track@index2:適応番号2,0,23,1,1
+--color@target_col:標的色,nil
+--color@col:適応色,0xff0000
+--[[pixelshader@matchColorChange
+
+float4 decode_col(float code, float a) {
+    uint col = (uint)code;
+    float3 rgb = float3(
+        (col >> 16) & 0xFF,
+        (col >> 8) & 0xFF,
+        col & 0xFF
+    ) / 255.0;
+    return float4(rgb, a);
+}
+
+Texture2D tex : register(t0);
+cbuffer constant0 : register(b0) {
+  float target_col;
+  float col;
+};
+SamplerState samLinear : register(s0);
+struct PS_INPUT {
+  float4 pos : SV_Position;
+  float2 uv : TEXCOORD0;
+};
+
+float4 matchColorChange(PS_INPUT input) : SV_Target {
+  float4 original_col = tex.Sample(samLinear, input.uv);
+  float4 target_col2 = decode_col(target_col, 1.0);
+  float EPSILON = 0.001f;
+  if (abs(target_col2.r - original_col.r) < EPSILON &&
+      abs(target_col2.g - original_col.g) < EPSILON &&
+      abs(target_col2.b - original_col.b) < EPSILON) {
+    return decode_col(col, 0.5);
+  }
+  else{
+    return original_col;
+  }
+}
+]]
+if(target_col) then
+  obj.pixelshader("matchColorChange", "object", "object", {
+    target_col,
+    col
+  })
+  debug_print("色適応a: " .. target_col .. " -> " .. col)
+else
+  if(index1 ~= index2) then
+    target_col = 2^index1+2^index2
+    obj.pixelshader("matchColorChange", "object", "object", {
+      target_col,
+      col
+    })
+    debug_print("色適応b: " .. target_col .. " -> " .. col)
+  end
+end
