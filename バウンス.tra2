@@ -1,7 +1,7 @@
 --twopoint
 --param:030070
 --information: バウンス v0 by teruyoshi
--- paramの上3桁は最初の1サイクルの所要時間の割合%
+-- paramの上3桁(千の位以上)は最初の1サイクルの所要時間の割合%
 -- paramの下3桁(残り)は反発係数%
 local st = obj.getpoint(0)
 local ed = obj.getpoint(1)
