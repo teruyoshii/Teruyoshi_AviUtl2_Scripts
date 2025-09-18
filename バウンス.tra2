@@ -1,0 +1,43 @@
+--twopoint
+--param:030070
+--information: バウンス v0 by teruyoshi
+-- paramの上3桁は最初の1サイクルの所要時間の割合%
+-- paramの下3桁(残り)は反発係数%
+local st = obj.getpoint(0)
+local ed = obj.getpoint(1)
+local index = obj.getpoint("index") -- 現在のインデックス
+local param = obj.getpoint("param")
+if param < 0 then
+  param = -param
+  st, ed = ed, st -- 反転
+end
+local e = param % 1000 / 100 -- 反発係数
+if e > 1 then
+  e = 1
+end
+local t1 = math.floor(param / 1000) / 100 -- 最初の1サイクルの所要時間の割合
+if t1 > 1 then
+  t1 = 1
+elseif t1 < 0.01 then
+  t1 = 1
+end
+if index == 0 then
+  return st
+end
+function getHeight(t_before, t_after, maxHeight_before)
+  if maxHeight_before < 0.001 then
+    return 0
+  end
+  if (index > t_before and index <= t_after) then
+    local height = maxHeight_before - ((index - t_before)*(1+e)/t1)^2
+    if height > 0 then
+      return height
+    else
+      index = index + (t_after - index)*2
+      return maxHeight_before * e * e - ((index - t_after)*(1+e)/t1)^2
+    end
+  else
+    return getHeight(t_after, t_after + (t_after - t_before)*e, maxHeight_before*e*e)
+  end
+end
+return (st-ed) * getHeight(0, t1, 1) + ed
