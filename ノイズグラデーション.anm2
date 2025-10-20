@@ -1,4 +1,4 @@
---information:ノイズグラデーション v1.0 by teruyoshi
+--information:ノイズグラデーション v1.2 by teruyoshi
 -- Azuriteさんのグラデーション+(https://github.com/azurite581/AviUtl2-GradientPlus)を参考に作成しました
 --track@str:強さ,0,100,100,0.01
 --track@sizeX:ドットサイズX,1,100,1,0.01
@@ -33,6 +33,7 @@ local BM = {"none", "add", "sub", "mul", "screen", "overlay", "light", "dark", "
     float3 rgb2;
     float a2;
     uint shape;
+    float2 size;
     uint seed;
     float gCurve[resolution];
   };
@@ -63,7 +64,7 @@ local BM = {"none", "add", "sub", "mul", "screen", "overlay", "light", "dark", "
       d = dot(input.pos.xy - center, float2(cos(angle), sin(angle))) + width/2.0;
     }
     else { // 円形
-      d = length(input.pos.xy - center) - (angle/3.141592*180 - 90); // angleは円形の場合半径として流用
+      d = length(float2((input.pos.x - center.x) * size.x, (input.pos.y - center.y) * size.y)) - angle; // angleは円形の場合半径として流用
     }
     if (d < 0 ) return rgba1;
     if (d > width ) return rgba2;
@@ -86,20 +87,25 @@ end
 
 local r1 , g1, b1 = RGB(rgb1)
 local r2 , g2, b2 = RGB(rgb2)
+obj.setoption("drawtarget", "tempbuffer", obj.w, obj.h)
 if clear == 0 then
   obj.draw()
 end
 obj.effect("リサイズ", "拡大率", 100, "X", 100/sizeX, "Y", 100/sizeY, "補間なし", 1, "ピクセル数でサイズ指定", 0)
-angle_deg = angle_deg + 1e-10 -- 角度がちょうど90度や270度のときの0除算回避
+local angle = angle_deg/180*math.pi + 1e-10  -- 角度がちょうど90度や270度のときの0除算回避
 -- リサイズの影響を考慮して角度を補正
-local sign = 0 -- atanで消える符号情報を保存
-if (angle_deg+90)%360 > 180 then
-  sign = math.pi
+if shape == 0 then
+  local sign = 0 -- atanで消える符号情報を保存
+  if (angle_deg+90)%360 > 180 then
+    sign = math.pi
+  end
+  angle = math.atan(sizeX/sizeY * math.tan(angle))+sign+math.pi/2
+  -- 幅をリサイズの影響を考慮して補正
+  width = width * math.sqrt((math.cos(angle)/sizeX)^2 + (math.sin(angle)/sizeY)^2)
+else
+  angle = angle_deg/2 -- 円形の場合は角度を内径として流用
+  width = width/2 -- 円形の場合はシェーダー側でも補正する
 end
-local angle = angle_deg/180*math.pi
-angle = math.atan(sizeX/sizeY * math.tan(angle))+sign+math.pi/2
--- 幅をリサイズの影響を考慮して補正
-width = width * math.sqrt((math.cos(angle)/sizeX)^2 + (math.sin(angle)/sizeY)^2)
 -- 中心座標をリサイズの影響を考慮して補正
 cx = cx/sizeX + obj.w / 2
 cy = cy/sizeY + obj.h / 2
@@ -113,6 +119,7 @@ obj.pixelshader("noiseGradient", "object", "object", {
     r2/255.0, g2/255.0, b2/255.0,
     1-a2/100.0,
     shape,
+    sizeX, sizeY,
     math.floor(seed),
     unpack(gCurves)
   },
@@ -122,3 +129,4 @@ obj.effect("リサイズ", "拡大率", 100, "X", sizeX*100, "Y", sizeY*100, "�
 obj.setoption("blend", BM[blendMode+1])
 obj.draw(0,0,0,1.0,str/100.0)
 obj.setoption("blend", "none")
+obj.copybuffer("obj","tmp")
