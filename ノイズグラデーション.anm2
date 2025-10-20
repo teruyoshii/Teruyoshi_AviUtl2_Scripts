@@ -1,4 +1,4 @@
---information:ノイズグラデーション v1.2 by teruyoshi
+--information:ノイズグラデーション v1.2 by teruyoshi 
 -- Azuriteさんのグラデーション+(https://github.com/azurite581/AviUtl2-GradientPlus)を参考に作成しました
 --track@str:強さ,0,100,100,0.01
 --track@sizeX:ドットサイズX,1,100,1,0.01
