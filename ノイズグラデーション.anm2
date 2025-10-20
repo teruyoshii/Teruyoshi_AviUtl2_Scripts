@@ -1,12 +1,14 @@
 --information:ノイズグラデーション v1.0 by teruyoshi
 -- Azuriteさんのグラデーション+(https://github.com/azurite581/AviUtl2-GradientPlus)を参考に作成しました
 --track@str:強さ,0,100,100,0.01
+--track@sizeX:ドットサイズX,1,100,1,0.01
+--track@sizeY:ドットサイズY,1,100,1,0.01
 --track@cx:中心X,-5000,5000,0,0.01
 --track@cy:中心Y,-5000,5000,0,0.01
---track@angle:角度/内径,-3600,3600,0,0.01
+--track@angle_deg:角度/内径,-3600,3600,0,0.01
 --track@width:幅,0,2000,300,0.01
 --select@shape:形状=0,線形=0,円形=1
---track0:🕒️ｸﾞﾗﾃﾞ曲線0→1,0,100,0,0.01 --時間制御でグラデーションの遷移を制御する
+--track0:🕒️ｸﾞﾗﾃﾞ曲線0→100,0,100,0,0.01 --時間制御でグラデーションの遷移を制御する
 --color@rgb1:開始色,0xff0000
 --track@a1:開始色透明度,0,100,0,0.01
 --color@rgb2:終了色,0x0000ff
@@ -41,10 +43,9 @@ local BM = {"none", "add", "sub", "mul", "screen", "overlay", "light", "dark", "
   };
 
   // 参考: https://andantesoft.hatenablog.com/entry/2024/12/19/193517
-  float ibukiHash(float4 v) { 
+  float ibukiHash(uint4 u) { 
     // posとseedをもとに、0〜1の疑似乱数を生成
     const uint4 mult = uint4(0xae3cc725, 0x9fe72885, 0xae36bfb5, 0x82c1fcad);  
-    uint4 u = uint4(v);  
     u = u * mult;  
     u ^= u.wxyz ^ u >> 13;  
     uint r = dot(u, mult);  
@@ -56,7 +57,7 @@ local BM = {"none", "add", "sub", "mul", "screen", "overlay", "light", "dark", "
     float original_a = tex.Sample(samLinear, input.uv).a; // 元オブジェクトの透明度
     float4 rgba1 = float4(rgb1 * original_a*a1, a1 * original_a);
     float4 rgba2 = float4(rgb2 * original_a*a2, a2 * original_a);
-    float rand = ibukiHash(input.pos + float4(0,0,0,seed));
+    float rand = ibukiHash(uint4(input.pos.x, input.pos.y, input.pos.z, input.pos.w + seed));
     float d;
     if (shape == 0) { // 線形
       d = dot(input.pos.xy - center, float2(cos(angle), sin(angle))) + width/2.0;
@@ -85,15 +86,27 @@ end
 
 local r1 , g1, b1 = RGB(rgb1)
 local r2 , g2, b2 = RGB(rgb2)
-cx = cx + obj.w / 2
-cy = cy + obj.h / 2
 if clear == 0 then
   obj.draw()
 end
+obj.effect("リサイズ", "拡大率", 100, "X", 100/sizeX, "Y", 100/sizeY, "補間なし", 1, "ピクセル数でサイズ指定", 0)
+angle_deg = angle_deg + 1e-10 -- 角度がちょうど90度や270度のときの0除算回避
+-- リサイズの影響を考慮して角度を補正
+local sign = 0 -- atanで消える符号情報を保存
+if (angle_deg+90)%360 > 180 then
+  sign = math.pi
+end
+local angle = angle_deg/180*math.pi
+angle = math.atan(sizeX/sizeY * math.tan(angle))+sign+math.pi/2
+-- 幅をリサイズの影響を考慮して補正
+width = width * math.sqrt((math.cos(angle)/sizeX)^2 + (math.sin(angle)/sizeY)^2)
+-- 中心座標をリサイズの影響を考慮して補正
+cx = cx/sizeX + obj.w / 2
+cy = cy/sizeY + obj.h / 2
 obj.pixelshader("noiseGradient", "object", "object", {
     str/100.0,
     cx, cy,
-    (angle+90)/180*math.pi,
+    angle,
     width,
     r1/255.0, g1/255.0, b1/255.0,
     1-a1/100.0,
@@ -105,7 +118,7 @@ obj.pixelshader("noiseGradient", "object", "object", {
   },
   "copy"
 )
-
+obj.effect("リサイズ", "拡大率", 100, "X", sizeX*100, "Y", sizeY*100, "補間なし", 1, "ピクセル数でサイズ指定", 0)
 obj.setoption("blend", BM[blendMode+1])
 obj.draw(0,0,0,1.0,str/100.0)
 obj.setoption("blend", "none")
