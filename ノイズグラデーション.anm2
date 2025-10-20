@@ -1,14 +1,14 @@
---information:ノイズグラデーション v1.2 by teruyoshi 
+--information:ノイズグラデーション v1.3 by teruyoshi
 -- Azuriteさんのグラデーション+(https://github.com/azurite581/AviUtl2-GradientPlus)を参考に作成しました
 --track@str:強さ,0,100,100,0.01
 --track@sizeX:ドットサイズX,1,100,1,0.01
 --track@sizeY:ドットサイズY,1,100,1,0.01
---track@cx:中心X,-5000,5000,0,0.01
---track@cy:中心Y,-5000,5000,0,0.01
+--track0:中心X,-5000,5000,0,0.01
+--track1:中心Y,-5000,5000,0,0.01
 --track@angle_deg:角度/内径,-3600,3600,0,0.01
 --track@width:幅,0,2000,300,0.01
 --select@shape:形状=0,線形=0,円形=1
---track0:🕒️ｸﾞﾗﾃﾞ曲線0→100,0,100,0,0.01 --時間制御でグラデーションの遷移を制御する
+--track3:🕒️ｸﾞﾗﾃﾞ曲線0→100,0,100,0,0.01 --時間制御でグラデーションの遷移を制御する
 --color@rgb1:開始色,0xff0000
 --track@a1:開始色透明度,0,100,0,0.01
 --color@rgb2:終了色,0x0000ff
@@ -16,12 +16,19 @@
 --select@blendMode:合成モード=0,通常=0,加算=1,減算=2,乗算=3,スクリーン=4,オーバーレイ=5,比較(明)=6,比較(暗)=7,輝度=8,色差=9,陰影=10,明暗=11,差分=12,アルファ加算=13,アルファ最大値=14,アルファ減算=15,アルファ加算2=16
 --track@seed:シード,0,10000,0,1
 --check@clear:元オブジェクトをクリア,0
-local resolution = 256 -- グラデーションカーブの解像度
 
+local MaxResolution = 255 -- グラデーションカーブの解像度
+-- 重い場合はMaxResolutionを下げてください(下のシェーダー側のMaxResolutionも同じ値にしてください)
 local BM = {"none", "add", "sub", "mul", "screen", "overlay", "light", "dark", "brightness", "chroma", "shadow", "light_dark", "diff", "alpha_add", "alpha_max", "alpha_sub", "alpha_add2"}
+local num = obj.setanchor("track", 0, "line")
+for i = 0, num - 1 do
+	cx = obj.getvalue(0)
+	cy = obj.getvalue(1)
+end
+
 
 --[[pixelshader@noiseGradient:
-  static const uint resolution = 256; //上のresolutionと合わせること
+  static const uint MaxResolution = 255; // 上のLua側のMaxresolutionと同じ値にすること
   Texture2D tex : register(t0);
   cbuffer constant0 : register(b0) {
     float str;
@@ -35,7 +42,7 @@ local BM = {"none", "add", "sub", "mul", "screen", "overlay", "light", "dark", "
     uint shape;
     float2 size;
     uint seed;
-    float gCurve[resolution];
+    float gCurve[MaxResolution];
   };
   SamplerState samLinear : register(s0);
   struct PS_INPUT {
@@ -64,51 +71,50 @@ local BM = {"none", "add", "sub", "mul", "screen", "overlay", "light", "dark", "
       d = dot(input.pos.xy - center, float2(cos(angle), sin(angle))) + width/2.0;
     }
     else { // 円形
-      d = length(float2((input.pos.x - center.x) * size.x, (input.pos.y - center.y) * size.y)) - angle; // angleは円形の場合半径として流用
+      d = length((input.pos.xy - center) * size) - angle; // angleは円形の場合内径として流用
     }
     if (d < 0 ) return rgba1;
     if (d > width ) return rgba2;
-    float mapped_d = gCurve[floor((d)/width * resolution/4)];
+    float mapped_d = gCurve[floor((d)/width * MaxResolution)];
     return (mapped_d > rand) ? rgba2 : rgba1;
   }
 ]]
 
 --ｸﾞﾗﾃﾞ曲線からグラデーションカーブの配列を作成
 local gCurves = {}
-if obj.getoption("track_mode", "0") == 0 then -- 時間制御が設定されていない場合は直線移動とみなす
-  for i = 0, resolution+2 do
-    gCurves[i] = i/(resolution+2)
+if obj.getoption("track_mode", "3") == 0 then -- 時間制御が設定されていない場合は直線移動とみなす
+  for i = 0, MaxResolution*4 do
+    gCurves[i] = i/(MaxResolution*4)
   end
 else
-  for i = 0, resolution+2 do
-    gCurves[i] = obj.getvalue(0,(obj.totaltime-1/obj.framerate)*i/(resolution+2))/100
+  for i = 0, MaxResolution*4 do
+    gCurves[i] = obj.getvalue(3,(obj.totaltime-1/obj.framerate)*i/(MaxResolution*4))/100
   end
 end
 
-local r1 , g1, b1 = RGB(rgb1)
-local r2 , g2, b2 = RGB(rgb2)
 obj.setoption("drawtarget", "tempbuffer", obj.w, obj.h)
 if clear == 0 then
   obj.draw()
 end
+-- ドットサイズの逆数倍のりサイズを掛けてピクセルシェーダーへの入力を調整する
 obj.effect("リサイズ", "拡大率", 100, "X", 100/sizeX, "Y", 100/sizeY, "補間なし", 1, "ピクセル数でサイズ指定", 0)
-local angle = angle_deg/180*math.pi + 1e-10  -- 角度がちょうど90度や270度のときの0除算回避
--- リサイズの影響を考慮して角度を補正
-if shape == 0 then
-  local sign = 0 -- atanで消える符号情報を保存
-  if (angle_deg+90)%360 > 180 then
-    sign = math.pi
-  end
-  angle = math.atan(sizeX/sizeY * math.tan(angle))+sign+math.pi/2
-  -- 幅をリサイズの影響を考慮して補正
+local angle = math.rad(angle_deg)
+if shape == 0 then -- 線形グラデーション
+  -- リサイズの影響を考慮して角度を補正
+  angle = math.atan2(sizeX *math.cos(angle), sizeY *math.sin(angle)) + math.pi/2
+  -- リサイズの影響を考慮して幅を補正
   width = width * math.sqrt((math.cos(angle)/sizeX)^2 + (math.sin(angle)/sizeY)^2)
-else
+else -- 円形グラデーション
   angle = angle_deg/2 -- 円形の場合は角度を内径として流用
   width = width/2 -- 円形の場合はシェーダー側でも補正する
 end
--- 中心座標をリサイズの影響を考慮して補正
+-- 中心座標を補正
 cx = cx/sizeX + obj.w / 2
 cy = cy/sizeY + obj.h / 2
+-- 色をrgbに分解
+local r1 , g1, b1 = RGB(rgb1)
+local r2 , g2, b2 = RGB(rgb2)
+
 obj.pixelshader("noiseGradient", "object", "object", {
     str/100.0,
     cx, cy,
@@ -121,10 +127,12 @@ obj.pixelshader("noiseGradient", "object", "object", {
     shape,
     sizeX, sizeY,
     math.floor(seed),
+    resolution,
     unpack(gCurves)
   },
   "copy"
 )
+-- 元のサイズにリサイズ
 obj.effect("リサイズ", "拡大率", 100, "X", sizeX*100, "Y", sizeY*100, "補間なし", 1, "ピクセル数でサイズ指定", 0)
 obj.setoption("blend", BM[blendMode+1])
 obj.draw(0,0,0,1.0,str/100.0)
