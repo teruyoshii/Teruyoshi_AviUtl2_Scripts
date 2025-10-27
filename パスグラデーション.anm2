@@ -1,0 +1,216 @@
+--information:パスグラデーション v1.0 by teruyoshi
+-- Azuriteさんのグラデーション+(https://github.com/azurite581/AviUtl2-GradientPlus)を参考に作成しました
+--track@str:強さ,0,100,100,0.01
+-- P1x,P1y,P2x,P2yの順で制御点を指定
+--value@beginPoint:始点,{-200,-200,-200,-150}
+-- P3x,P3y,P4x,P4yの順で制御点を指定
+--value@endPoint:終点,{150,200,200,200}
+--track3:🕒️ｸﾞﾗﾃﾞ曲線0→100,0,100,0,0.01 --時間制御でグラデーションの遷移を制御する
+--color@rgb1:開始色,0xffffff
+--track@a1:開始色透明度,0,100,0,0.01
+--color@rgb2:終了色,0x000000
+--track@a2:終了色透明度,0,100,0,0.01
+--select@colorSpace:色空間=0,RGB=0,HSL短経路=1,HSL長経路=2,HSL右回り=3,HSL左回り=4
+--track@resolution:精度,2,500,100,1
+--select@blendMode:合成モード=0,通常=0,加算=1,減算=2,乗算=3,スクリーン=4,オーバーレイ=5,比較(明)=6,比較(暗)=7,輝度=8,色差=9,陰影=10,明暗=11,差分=12,アルファ加算=13,アルファ最大値=14,アルファ減算=15,アルファ加算2=16
+--check@clear:元オブジェクトをクリア,0
+--check@showBezier:ベジェ曲線を描画,0
+--color@bezierColor:ベジェ曲線色,0xff0000
+local MaxResolution = 500 -- グラデーションカーブの解像度
+-- 重い場合はMaxResolutionを下げてください(下のシェーダー側のMaxResolutionも同じ値にしてください)
+local BM = {"none", "add", "sub", "mul", "screen", "overlay", "light", "dark", "brightness", "chroma", "shadow", "light_dark", "diff", "alpha_add", "alpha_max", "alpha_sub", "alpha_add2"}
+local num = obj.setanchor("beginPoint", 2, "line")
+local num2 = obj.setanchor("endPoint", 2, "line")
+
+--[[pixelshader@PathGradient:
+  static const uint MaxResolution = 500; // 上のLua側のMaxresolutionと同じ値にすること
+  static const float weight = 10.0; // 線の太さ
+
+  float4 rgb2hsl(float4 rgba) {
+    float r = rgba.r;
+    float g = rgba.g;
+    float b = rgba.b;
+    float maxc = max(r, max(g, b));
+    float minc = min(r, min(g, b));
+    float h = 0.0;
+    float s = 0.0;
+    float l = (maxc + minc) / 2.0;
+    if (maxc != minc) {
+      float delta = maxc - minc;
+      if (l < 0.5) s = delta / (maxc + minc);
+      else s = delta / (2.0 - maxc - minc);
+      if (maxc == r) h = (g - b) / delta + (g < b ? 6.0 : 0.0);
+      else if (maxc == g) h = (b - r) / delta + 2.0;
+      else h = (r - g) / delta + 4.0;
+      h /= 6.0;
+    }
+    return float4(h, s, l, rgba.w);
+  }
+  float4 hue2rgb(float hue){
+    float r = abs(hue * 6.0 - 3.0) - 1.0;
+    float g = 2.0 - abs(hue * 6.0 - 2.0);
+    float b = 2.0 - abs(hue * 6.0 - 4.0);
+    return float4(r, g, b, 1.0);
+  }
+  float4 hsl2rgb(float4 hsla) {
+    float r = abs(hsla.x * 6.0 - 3.0) -1.0;
+    float g = 2.0 - abs(hsla.x * 6.0 - 2.0);
+    float b = 2.0 - abs(hsla.x * 6.0 - 4.0);
+    float C = (1.0 - abs(2.0 * hsla.z - 1.0)) * hsla.y;
+    return float4((float3(r,g,b) - 0.5) * C + hsla.z, hsla.w);
+  }
+
+  float4 lerpRGB(float4 c1, float4 c2, float t) {
+    return lerp(c1, c2, t);
+  }
+  float4 lerpHSL_short(float4 c1, float4 c2, float t) {
+    float4 hsla1 = rgb2hsl(c1);
+    float4 hsla2 = rgb2hsl(c2);
+    // 短経路補正
+    if (abs(hsla2.x - hsla1.x) > 0.5) {
+      if (hsla1.x > hsla2.x) hsla2.x += 1.0;
+      else hsla1.x += 1.0;
+    }
+    float4 hsla = lerp(hsla1, hsla2, t);
+    if (hsla.x > 1.0) hsla.x -= 1.0;
+    if (hsla.x < 0.0) hsla.x += 1.0;
+    return  hsl2rgb(hsla);
+  }
+  float4 lerpHSL_long(float4 c1, float4 c2, float t) {
+    float4 hsla1 = rgb2hsl(c1);
+    float4 hsla2 = rgb2hsl(c2);
+    // 短経路補正
+    if (abs(hsla2.x - hsla1.x) < 0.5) {
+      if (hsla1.x > hsla2.x) hsla2.x += 1.0;
+      else hsla1.x += 1.0;
+    }
+    float4 hsla = lerp(hsla1, hsla2, t);
+    if (hsla.x > 1.0) hsla.x -= 1.0;
+    if (hsla.x < 0.0) hsla.x += 1.0;
+    return  hsl2rgb(hsla);
+  }
+  float4 lerpHSL_r(float4 c1, float4 c2, float t) {
+    float4 hsla1 = rgb2hsl(c1);
+    float4 hsla2 = rgb2hsl(c2);
+    if (hsla2.x < hsla1.x) hsla2.x += 1.0;
+    float4 hsla = lerp(hsla1, hsla2, t);
+    if (hsla.x > 1.0) hsla.x -= 1.0;
+    if (hsla.x < 0.0) hsla.x += 1.0;
+    return  hsl2rgb(hsla);
+  }
+  float4 lerpHSL_l(float4 c1, float4 c2, float t) {
+    float4 hsla1 = rgb2hsl(c1);
+    float4 hsla2 = rgb2hsl(c2);
+    if (hsla1.x > hsla2.x) hsla1.x -= 1.0;
+    float4 hsla = lerp(hsla2, hsla1, t);
+    if (hsla.x > 1.0) hsla.x -= 1.0;
+    if (hsla.x < 0.0) hsla.x += 1.0;
+    return  hsl2rgb(hsla);
+  }
+
+  Texture2D tex : register(t0);
+  cbuffer constant0 : register(b0) {
+    //float str;
+    float2 p1;
+    float2 p2;
+    float2 p3;
+    float2 p4;
+    float3 rgb1;
+    float a1;
+    float3 rgb2;
+    float a2;
+    float3 bezierColor;
+    float colorSpace;
+    float resolution;
+    float showBezier;
+    float gCurve[MaxResolution];
+  };
+  SamplerState samLinear : register(s0);
+  struct PS_INPUT {
+    float4 pos : SV_Position;
+    float2 uv : TEXCOORD0;
+  };
+
+  float4 PathGradient(PS_INPUT input) : SV_Target {
+    float2 uv = input.pos.xy;
+    float minDist = 10000.0;
+    float minPosition = 0.0;
+    float original_a = tex.Sample(samLinear, input.uv).a; // 元オブジェクトの透明度
+    float4 rgba1 = float4(rgb1 * original_a*a1, a1 * original_a);
+    float4 rgba2 = float4(rgb2 * original_a*a2, a2 * original_a);
+    for (float t = 0.0; t <= 1.0; t += 1/resolution) {
+      float u = 1.0 - t;
+      float2 bezierPoint = u*u*u*p1 + 3.0*u*u*t*p2 + 3.0*u*t*t*p3 + t*t*t*p4;
+      float dist = length(uv - bezierPoint);
+      if (dist < minDist) {
+        minDist = dist;
+        minPosition = t;
+      }
+    }
+    float mapped_minPosition = gCurve[floor(minPosition * MaxResolution)];
+
+    if (minDist < 10 && showBezier == 1) {
+      return float4(bezierColor, 1.0);
+    }
+    switch (colorSpace) {
+      case 0: // RGB補間
+        return lerpRGB(rgba1, rgba2, mapped_minPosition);
+      case 1 : // HSL短経路補間
+        return lerpHSL_short(rgba1, rgba2, mapped_minPosition);
+      case 2 : // HSL長経路補間
+        return lerpHSL_long(rgba1, rgba2, mapped_minPosition);
+      case 3 : // HSL右回り補間
+        return lerpHSL_r(rgba1, rgba2, mapped_minPosition);
+      case 4 : // HSL左回り補間
+        return lerpHSL_l(rgba2, rgba1, mapped_minPosition);
+      default:
+        return lerpRGB(rgba1, rgba2, mapped_minPosition);
+    }
+  }
+]]
+
+--ｸﾞﾗﾃﾞ曲線からグラデーションカーブの配列を作成
+local gCurves = {}
+if obj.getoption("track_mode", "3") == 0 then -- 時間制御が設定されていない場合は直線移動とみなす
+  for i = 0, MaxResolution*4 do
+    gCurves[i] = i/(MaxResolution*4)
+  end
+else
+  for i = 0, MaxResolution*4 do
+    gCurves[i] = obj.getvalue(3,(obj.totaltime-1/obj.framerate)*i/(MaxResolution*4))/100
+  end
+end
+
+obj.setoption("drawtarget", "tempbuffer", obj.w, obj.h)
+if clear == 0 then
+  obj.draw()
+end
+-- 色をrgbに分解
+local r1 , g1, b1 = RGB(rgb1)
+local r2 , g2, b2 = RGB(rgb2)
+local r3 , g3, b3 = RGB(bezierColor)
+-- 中心座標
+local cx = obj.w / 2
+local cy = obj.h / 2
+obj.pixelshader("PathGradient", "object", "object", {
+    --str/100.0,
+    beginPoint[1]+cx, beginPoint[2]+cy,
+    beginPoint[3]+cx, beginPoint[4]+cy,
+    endPoint[1]+cx, endPoint[2]+cy,
+    endPoint[3]+cx, endPoint[4]+cy,
+    r1/255.0, g1/255.0, b1/255.0,
+    1-a1/100.0,
+    r2/255.0, g2/255.0, b2/255.0,
+    1-a2/100.0,
+    r3/255.0, g3/255.0, b3/255.0,
+    colorSpace,
+    resolution,
+    showBezier,
+    unpack(gCurves)
+  },
+  "copy"
+)
+obj.setoption("blend", BM[blendMode+1])
+obj.draw(0,0,0,1.0,str/100.0)
+obj.setoption("blend", "none")
+obj.copybuffer("obj","tmp")
