@@ -1,4 +1,4 @@
---information:パスグラデーション v1.0 by teruyoshi
+--information:パスグラデーション v1.1 by teruyoshi
 -- Azuriteさんのグラデーション+(https://github.com/azurite581/AviUtl2-GradientPlus)を参考に作成しました
 --track@str:強さ,0,100,100,0.01
 -- P1x,P1y,P2x,P2yの順で制御点を指定
@@ -147,7 +147,14 @@ local num2 = obj.setanchor("endPoint", 2, "line")
         minPosition = t;
       }
     }
-    float mapped_minPosition = gCurve[floor(minPosition * MaxResolution)];
+    float mapped_minPosition = 0;
+    if (minPosition <= 0.0) {
+      return rgba1;
+    } else if (minPosition >= 1.0) {
+      return rgba2;
+    } else {
+      mapped_minPosition = gCurve[floor(minPosition * MaxResolution)];
+    }
 
     if (minDist < 10 && showBezier == 1) {
       return float4(bezierColor, 1.0);
