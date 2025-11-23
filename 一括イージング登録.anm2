@@ -6,5 +6,5 @@ end
 if _G["bulkEasingRegister"][num] == nil then
 	bulkEasingRegister[num] = {}
 end
-nowFrame = math.floor(obj.getvalue("time")*60 +0.5)
+nowFrame = math.floor(obj.getvalue("time")*obj.framerate +0.5)
 bulkEasingRegister[num][nowFrame] = obj.getvalue(0)
