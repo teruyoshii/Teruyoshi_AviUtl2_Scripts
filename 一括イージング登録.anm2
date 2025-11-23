@@ -1,0 +1,10 @@
+--track@num:登録番号,0,100,0,1
+--track0:Easing[0→1],0,1,0,1
+if _G["bulkEasingRegister"] == nil then
+	bulkEasingRegister = {}
+end
+if _G["bulkEasingRegister"][num] == nil then
+	bulkEasingRegister[num] = {}
+end
+nowFrame = math.floor(obj.getvalue("time")*60 +0.5)
+bulkEasingRegister[num][nowFrame] = obj.getvalue(0)

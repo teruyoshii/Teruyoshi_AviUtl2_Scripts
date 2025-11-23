@@ -1,0 +1,19 @@
+--twopoint
+--param:1
+-- paramはトラックバーの登録番号
+local st = obj.getpoint(0)
+local ed = obj.getpoint(1)
+local param = obj.getpoint("param")
+if _G["bulkEasingRegister"] == nil then
+  debug_print("一括イージング登録が見つかりません")
+  return st
+end
+if _G["bulkEasingRegister"][param] == nil then
+  debug_print("登録番号 " .. param .. " は存在しません")
+  return st
+end
+nowFrame = math.floor(obj.getpoint("time")*60 +0.5)
+if _G["bulkEasingRegister"][param][nowFrame] == nil then
+  return ed
+end
+return _G["bulkEasingRegister"][param][nowFrame]*(ed - st) + st
