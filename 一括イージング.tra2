@@ -12,7 +12,7 @@ if _G["bulkEasingRegister"][param] == nil then
   debug_print("登録番号 " .. param .. " は存在しません")
   return st
 end
-nowFrame = math.floor(obj.getpoint("time")*60 +0.5)
+nowFrame = math.floor(obj.getpoint("time")*obj.framerate +0.5)
 if _G["bulkEasingRegister"][param][nowFrame] == nil then
   return ed
 end
