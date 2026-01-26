@@ -1,0 +1,80 @@
+--information:色マッピング v1.0 by teruyoshi
+--指定した2色間を別で指定した2色間にマッピングします
+--color@sourceColor1:変換元色1,0xff0000
+--color@sourceColor2:変換元色2,0x0000ff
+--color@targetColor1:変換先色1,0x00ff00
+--color@targetColor2:変換先色2,0xffff00
+
+--check@channel_r:赤チャンネル有効,true
+--check@channel_g:緑チャンネル有効,true
+--check@channel_b:青チャンネル有効,true
+
+--[[pixelshader@colorMapping:
+  Texture2D tex : register(t0);
+  cbuffer constant0 : register(b0) {
+    float4 source1;
+    float4 source2;
+    float4 target1;
+    float4 target2;
+    int channel_r;
+    int channel_g;
+    int channel_b;
+  };
+  SamplerState samLinear : register(s0);
+  struct PS_INPUT {
+    float4 pos : SV_Position;
+    float2 uv : TEXCOORD0;
+  };
+
+  float4 colorMapping(PS_INPUT input) : SV_Target {
+    float4 original = tex.Sample(samLinear, input.uv);
+    if (original.a == 0.0) {
+      return float4(original.rgb,0); // 元が透明なら透明を返す
+    }
+    float3 originalRgb = original.rgb / original.a;
+    float3 sourceMin = min(source1.rgb, source2.rgb);
+    float3 sourceMax = max(source1.rgb, source2.rgb);
+    if(originalRgb.r < sourceMin.x - 1e-3 || originalRgb.r > sourceMax.x + 1e-3 ||
+       originalRgb.g < sourceMin.y - 1e-3 || originalRgb.g > sourceMax.y + 1e-3 ||
+       originalRgb.b < sourceMin.z - 1e-3 || originalRgb.b > sourceMax.z + 1e-3) {
+      return original; // 変換元が範囲外ならそのまま表示
+    } else {
+      float3 normalized;
+      normalized.r = (originalRgb.r - source1.x) / (source2.x - source1.x);
+      normalized.g = (originalRgb.g - source1.y) / (source2.y - source1.y);
+      normalized.b = (originalRgb.b - source1.z) / (source2.z - source1.z);
+      float3 mapped;
+      mapped.r = target1.x + normalized.r * (target2.x - target1.x);
+      mapped.g = target1.y + normalized.g * (target2.y - target1.y);
+      mapped.b = target1.z + normalized.b * (target2.z - target1.z);
+      if (channel_r == 0) mapped.r = originalRgb.r;
+      if (channel_g == 0) mapped.g = originalRgb.g;
+      if (channel_b == 0) mapped.b = originalRgb.b;
+      return float4(mapped*original.a, original.a); // マッピング後の色を返す
+    }
+    
+
+  }
+]]
+
+obj.setoption("drawtarget", "tempbuffer", obj.w, obj.h)
+
+local r1,g1,b1 = RGB(sourceColor1)
+local r2,g2,b2 = RGB(sourceColor2)
+local r3,g3,b3 = RGB(targetColor1)
+local r4,g4,b4 = RGB(targetColor2)
+
+obj.pixelshader("colorMapping","object","object", {
+  r1/255,g1/255,b1/255,1,
+  r2/255,g2/255,b2/255,1,
+  r3/255,g3/255,b3/255,1,
+  r4/255,g4/255,b4/255,1,
+  channel_r and 1 or 0,
+  channel_g and 1 or 0,
+  channel_b and 1 or 0
+  },
+  "copy"
+)
+obj.setoption("blend", "none")
+obj.draw()
+obj.copybuffer("obj","tmp")

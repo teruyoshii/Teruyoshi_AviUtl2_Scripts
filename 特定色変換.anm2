@@ -1,0 +1,77 @@
+--information:特定色変換 v1.0 by teruyoshi
+--対象色に近い色のみ変換先色に変換します
+--color@targetColor:対象色,0xffffff
+--color@replaceColor:変換先色,0xff0000
+--Group:抽出範囲設定
+--track@hueRange:色相範囲,0,360,5,0.01
+--track@saturationRange:彩度範囲,0,100,3,0.01
+--track@valueRange:明度範囲,0,100,3,0.01
+--track@edgeFac:境界補正,0,100,5,0.01
+
+
+--[[pixelshader@ReplaceColor:
+  Texture2D tex : register(t0);
+  cbuffer constant0 : register(b0) {
+    float4 targetColor;
+    float4 replaceColor;
+    float hueRange;
+    float saturationRange;
+    float valueRange;
+    float edgeFac;
+  };
+  SamplerState samLinear : register(s0);
+  struct PS_INPUT {
+    float4 pos : SV_Position;
+    float2 uv : TEXCOORD0;
+  };
+
+  float3 rgb2hsv(float3 c) {
+    float4 K = float4(0.0, -1.0/3.0, 2.0/3.0, -1.0);
+    float4 p = lerp(float4(c.bg, K.wz), float4(c.gb, K.xy), step(c.b, c.g));
+    float4 q = lerp(float4(p.xyw, c.r), float4(c.r, p.yzx), step(p.x, c.r));
+    float d = q.x - min(q.w, q.y);
+    float e = 1.0e-10;
+    return float3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+  }
+
+  float4 ReplaceColor(PS_INPUT input) : SV_Target {
+    float4 original = tex.Sample(samLinear, input.uv);
+    if (original.a == 0.0) {
+      return float4(original.rgb,0); // 元が透明なら透明を返す
+    }
+    float3 hsvColor = rgb2hsv(original.rgb/original.a);
+    float3 hsvTarget = rgb2hsv(targetColor.rgb);
+
+    float hueDiff = abs(hsvColor.x - hsvTarget.x) * 360.0;
+    hueDiff = min(hueDiff, 360.0 - hueDiff); // 色相の円環性を考慮
+
+    float satDiff = abs(hsvColor.y * 100.0 - hsvTarget.y * 100.0);
+    float valDiff = abs(hsvColor.z * 100.0 - hsvTarget.z * 100.0);
+    if (hueDiff <= hueRange && satDiff <= saturationRange && valDiff <= valueRange) {
+      return float4(replaceColor.rgb*original.a, original.a); // 対象色に近い場合、変換先色に変換
+    } else {
+      float outDiffSum = max(hueDiff - hueRange, 0)/360
+      + max(satDiff - saturationRange, 0)/100
+      + max(valDiff - valueRange, 0)/100;
+      float factor = min(outDiffSum/edgeFac*100,1.0);
+      return float4((original.rgb*factor + replaceColor.rgb*(1-factor)*original.a),original.a); // 対象色から外れる場合、透明化
+    }
+  }
+]]
+obj.setoption("drawtarget", "tempbuffer", obj.w, obj.h)
+
+local r,g,b = RGB(targetColor)
+local r2,g2,b2 = RGB(replaceColor)
+obj.pixelshader("ReplaceColor", "object", "object", {
+  r/255,g/255,b/255,0,
+  r2/255,g2/255,b2/255,0,
+  hueRange/2,
+  saturationRange,
+  valueRange,
+  edgeFac
+  },
+  "copy"
+)
+obj.setoption("blend", "none")
+obj.draw(0,0,0,1.0,1.0)
+obj.copybuffer("obj","tmp")
