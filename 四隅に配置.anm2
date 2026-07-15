@@ -1,4 +1,5 @@
---information:四隅に配置 v1.4 by teruyoshi | 指定されたオブジェクトを四隅に配置します。
+--information:四隅に配置 v1.4.1 by teruyoshi | 指定されたオブジェクトを四隅に配置します。
+--label:配置
 --group:基本設定,true
 --track@mX:余白X,-2000,2000,100,0.01
 --track@mY:余白Y,-2000,2000,100,0.01
