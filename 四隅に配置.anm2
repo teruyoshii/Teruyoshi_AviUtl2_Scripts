@@ -1,4 +1,4 @@
---information:四隅に配置 v1.2 by teruyoshi | 指定されたオブジェクトを四隅に配置します。
+--information:四隅に配置 v1.4 by teruyoshi | 指定されたオブジェクトを四隅に配置します。
 --group:基本設定,true
 --track@mX:余白X,-2000,2000,100,0.01
 --track@mY:余白Y,-2000,2000,100,0.01
@@ -25,6 +25,12 @@
 --track@alpha_ur:右上透明度,0,100,0,0.01
 --track@alpha_dl:左下透明度,0,100,0,0.01
 --track@alpha_dr:右下透明度,0,100,0,0.01
+
+if size == 0 then return end -- 全体サイズが0の場合は描画しない
+if size_ul == 0 then alpha_ul = 0 end -- 左上サイズが0の場合は透明度を0にして描画しない
+if size_ur == 0 then alpha_ur = 0 end -- 右上サイズが0の場合は透明度を0にして描画しない
+if size_dl == 0 then alpha_dl = 0 end -- 左下サイズが0の場合は透明度を0にして描画しない
+if size_dr == 0 then alpha_dr = 0 end -- 右下サイズが0の場合は透明度を0にして描画しない
 
 -- 画面サイズとオブジェクトサイズを略記
 local screen_half_w = obj.screen_w/2
@@ -67,12 +73,18 @@ alpha_dr = (100 - alpha_dr)/100
 -- 中心から右上までの距離を求め、size倍する
 local r = math.sqrt(w^2 + h^2)/2 *size/100
 -- 最も大きいサイズに合わせて出力範囲を決定する
-  local max_r = r * math.max(size_ul, size_ur, size_dl, size_dr)/100
-
+local max_r = r * math.max(size_ul, size_ur, size_dl, size_dr)/100
+local system_max_w, system_max_h = obj.getinfo("image_max") -- 画像の最大サイズ制限を取得する
 if multiobject == true then -- 個別オブジェクトとして描画する場合
   max_r = max_r / size * 100
-  obj.setoption("drawtarget", "tempbuffer",
-  (screen_half_w - mX/size*100 + max_r)*2, (screen_half_h - mY/size*100 + max_r)*2)
+  local buf_w = (screen_half_w - mX/size*100 + max_r)*2
+  local buf_h = (screen_half_h - mY/size*100 + max_r)*2
+  if buf_w > system_max_w or buf_h > system_max_h then 
+    buf_w = math.min(buf_w, system_max_w)
+    buf_h = math.min(buf_h, system_max_h)
+    print("@warn","四隅に配置: 画像の最大サイズ制限により、描画範囲が制限されました。幅:" ..buf_w.." 高さ:"..buf_h)
+  end
+  obj.setoption("drawtarget", "tempbuffer", buf_w, buf_h)
   local ox_s = { -screen_half_w + tX, screen_half_w - tX, -screen_half_w + tX, screen_half_w - tX }
   local oy_s = { -screen_half_h + tY, -screen_half_h + tY, screen_half_h - tY, screen_half_h - tY }
   local size_s = { size_ul, size_ur, size_dl, size_dr }
@@ -104,9 +116,14 @@ if multiobject == true then -- 個別オブジェクトとして描画する場�
   obj.rz = rot_ori
 
 else -- 個別オブジェクトとして描画しない場合
-  -- 一旦tempbufferに描画する
-  obj.setoption("drawtarget", "tempbuffer",
-  (screen_half_w - mX + max_r)*2, (screen_half_h - mY + max_r)*2)
+  local buf_w = (screen_half_w - mX + max_r)*2
+  local buf_h = (screen_half_h - mY + max_r)*2
+  if buf_w > system_max_w or buf_h > system_max_h or buf_w*buf_h > 16000000 then 
+    buf_w = math.min(buf_w, system_max_w, buf_w *(16000000/(buf_w*buf_h)))
+    buf_h = math.min(buf_h, system_max_h, buf_h *(16000000/(buf_w*buf_h)))
+    print("@warn","四隅に配置: 画像の最大サイズ制限により、描画範囲が制限されました。幅:" ..buf_w.." 高さ:"..buf_h)
+  end
+  obj.setoption("drawtarget", "tempbuffer", buf_w, buf_h)
   if alpha_ul > 0 then
     local r_ul = r * size_ul/100
     local x0 = -screen_half_w + tX - (r_ul *  math.cos(rot_ul - angle))
