@@ -1,0 +1,101 @@
+--information:透明度をノイズに適用 v1.0 by teruyoshi | ピクセルごとに透明度を参照し、透明度の確率でピクセルの透明度を0/1にすることで、透明度をノイズのように表現します
+--track@str:強さ,0,100,100,0.01
+--track@sizeX:ドットサイズX,1,100,1,0.01
+--track@sizeY:ドットサイズY,1,100,1,0.01
+--track1:🕒️ﾉｲｽﾞ曲線0→100,0,100,0,0.01 --時間制御で透明度からノイズ閾値へのマッピングを制御する
+--select@blendMode:合成モード=0,通常=0,加算=1,減算=2,乗算=3,スクリーン=4,オーバーレイ=5,比較(明)=6,比較(暗)=7,輝度=8,色差=9,陰影=10,明暗=11,差分=12,アルファ加算=13,アルファ最大値=14,アルファ減算=15,アルファ加算2=16
+--track@seed:シード,0,10000,0,1
+--check@useObjectAlpha:標準描画での透明度も参照する,1
+
+
+local MaxResolution = 255 -- グラデーションカーブの解像度
+-- 重い場合はMaxResolutionを下げてください(下のシェーダー側のMaxResolutionも同じ値にしてください)
+local BM = {"none", "add", "sub", "mul", "screen", "overlay", "light", "dark", "brightness", "chroma", "shadow", "light_dark", "diff", "alpha_add", "alpha_max", "alpha_sub", "alpha_add2"}
+
+--[[pixelshader@noiseTransparent:
+  static const uint MaxResolution = 255; // 上のLua側のMaxresolutionと同じ値にすること
+  Texture2D tex : register(t0);
+  cbuffer constant0 : register(b0) {
+    float str;
+    uint seed;
+    float ObjectAlpha;
+    float aCurve[MaxResolution];
+  };
+  SamplerState samLinear : register(s0);
+  struct PS_INPUT {
+    float4 pos : SV_Position;
+    float2 uv : TEXCOORD0;
+  };
+
+  // 参考: https://andantesoft.hatenablog.com/entry/2024/12/19/193517
+  float ibukiHash(uint4 u) { 
+    // posとseedをもとに、0〜1の疑似乱数を生成
+    const uint4 mult = uint4(0xae3cc725, 0x9fe72885, 0xae36bfb5, 0x82c1fcad);  
+    u = u * mult;  
+    u ^= u.wxyz ^ u >> 13;  
+    uint r = dot(u, mult);  
+    r ^= r >> 11;  
+    r = (r * r) ^ r;  
+    return r * 2.3283064365386962890625e-10;  
+  }  
+  float4 noiseTransparent(PS_INPUT input) : SV_Target {
+    float4 original = tex.Sample(samLinear, input.uv);
+    if (original.a == 0.0) {
+      return original;
+    }
+    if (original.a >= 1.0 && ObjectAlpha >= 1.0) {
+      return float4(original.rgb/ObjectAlpha, 1.0/ObjectAlpha);
+    }
+    float rand = ibukiHash(uint4(input.pos.x, input.pos.y, input.pos.z, input.pos.w + seed));
+    float mapped_a = aCurve[floor(original.a* ObjectAlpha * MaxResolution)];
+    if (rand < mapped_a) {
+      return float4(original.rgb/ObjectAlpha/original.a, 1.0/(ObjectAlpha));
+    }
+    return float4(original.rgb,0.0);
+  }
+]]
+
+--ｸﾞﾗﾃﾞ曲線からグラデーションカーブの配列を作成
+local gCurves = {}
+if obj.getoption("track_mode", "1") == 0 then -- 時間制御が設定されていない場合は直線移動とみなす
+  for i = 0, MaxResolution*4 do
+    gCurves[i] = i/(MaxResolution*4)
+  end
+else
+  for i = 0, MaxResolution*4 do
+    gCurves[i] = obj.getvalue(1,(obj.totaltime-1/obj.framerate)*i/(MaxResolution*4))/100
+  end
+end
+
+obj.setoption("drawtarget", "tempbuffer", obj.w, obj.h)
+
+if str ~= 100 then
+  obj.draw(0,0,0,1.0,1-str/100.0)
+end
+
+
+-- ドットサイズの逆数倍のりサイズを掛けてピクセルシェーダーへの入力を調整する
+obj.effect("リサイズ", "拡大率", 100, "X", 100/sizeX, "Y", 100/sizeY, "補間なし", 1, "ピクセル数でサイズ指定", 0)
+
+if useObjectAlpha == 1 then
+  ObjectAlpha = obj.alpha * obj.getvalue("alpha")
+else
+  ObjectAlpha = obj.alpha
+end
+
+
+obj.pixelshader("noiseTransparent", "object", "object", {
+    str/100.0,
+    math.floor(seed),
+    ObjectAlpha,
+    unpack(gCurves)
+  },
+  "copy"
+)
+
+-- 元のサイズにリサイズ
+obj.effect("リサイズ", "拡大率", 100, "X", sizeX*100, "Y", sizeY*100, "補間なし", 1, "ピクセル数でサイズ指定", 0)
+obj.setoption("blend", BM[blendMode+1])
+obj.draw(0,0,0,1.0,str/100.0)
+obj.setoption("blend", "none")
+obj.copybuffer("obj","tmp")
