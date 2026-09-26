@@ -1,4 +1,4 @@
---information:パスブラー v1.0.0 by teruyoshi | オブジェクトをベジェ曲線の形に沿って流す方向ブラー
+--information:パスブラー v1.0 by teruyoshi | オブジェクトをベジェ曲線の形に沿って流す方向ブラー
 --label:teruyoshi
 --group:パス設定,false
 -- ベジェ曲線の始点はオブジェクトの中心。各座標はオブジェクト中心からの相対座標
