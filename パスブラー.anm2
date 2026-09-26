@@ -1,4 +1,4 @@
---information:パスブラー v1.0 by teruyoshi | オブジェクトをベジェ曲線の形に沿って流す方向ブラー
+--information:パスブラー v1.1 by teruyoshi | オブジェクトをベジェ曲線の形に沿って流す方向ブラー
 --label:teruyoshi
 --group:パス設定,false
 -- ベジェ曲線の始点はオブジェクトの中心。各座標はオブジェクト中心からの相対座標
@@ -46,27 +46,13 @@ obj.setanchor("p3x,p3y", 0, "small")
 obj.setanchor("p4x,p4y", 0)
 obj.setanchor({obj.cx, obj.cy, p2x, p2y}, 2, "line") -- 始点と始点ハンドルを結ぶ線(表示のみ)
 obj.setanchor({p3x, p3y, p4x, p4y}, 2, "line") -- 終点ハンドルと終点を結ぶ線(表示のみ)
-
--- 移動が設定されている場合は、開始点の状態を緑、終了点の状態を赤の線で追加表示する
-local function isMoving(...)
-  for _, name in ipairs({...}) do
-    if obj.getoption("track_mode", name) ~= 0 then return true end
-  end
-  return false
+if obj.getoption("track_mode", "p2x") ~= 0 or obj.getoption("track_mode", "p2y") ~= 0 then
+  obj.setanchor({obj.cx, obj.cy, obj.getvalue("track.p2x", 0), obj.getvalue("track.p2y", 0)}, 2, "line", "color", 0xa0ffa0)
+  obj.setanchor({obj.cx, obj.cy, obj.getvalue("track.p2x", 0,-1), obj.getvalue("track.p2y", 0,-1)}, 2, "line", "color", 0xffa0a0)
 end
-local function trackValue(name, section)
-  return obj.getvalue("track." .. name, 0, section)
-end
-local startMoving = isMoving("p2x", "p2y")
-local endMoving = isMoving("p3x", "p3y", "p4x", "p4y")
-for _, v in ipairs({{0, 0xa0ffa0}, {-1, 0xffa0a0}}) do
-  local section, color = v[1], v[2]
-  if startMoving then
-    obj.setanchor({obj.cx, obj.cy, trackValue("p2x", section), trackValue("p2y", section)}, 2, "line", "color", color)
-  end
-  if endMoving then
-    obj.setanchor({trackValue("p3x", section), trackValue("p3y", section), trackValue("p4x", section), trackValue("p4y", section)}, 2, "line", "color", color)
-  end
+if obj.getoption("track_mode", "p3x") ~= 0 or obj.getoption("track_mode", "p3y") ~= 0 or obj.getoption("track_mode", "p4x") ~= 0 or obj.getoption("track_mode", "p4y") ~= 0 then
+  obj.setanchor({obj.getvalue("track.p3x", 0), obj.getvalue("track.p3y", 0), obj.getvalue("track.p4x", 0), obj.getvalue("track.p4y", 0)}, 2, "line", "color", 0xa0ffa0)
+  obj.setanchor({obj.getvalue("track.p3x", 0,-1), obj.getvalue("track.p3y", 0,-1), obj.getvalue("track.p4x", 0,-1), obj.getvalue("track.p4y", 0,-1)}, 2, "line", "color", 0xffa0a0)
 end
 
 --[[pixelshader@PathBlur:
