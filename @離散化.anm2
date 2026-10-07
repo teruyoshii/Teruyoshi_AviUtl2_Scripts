@@ -34,7 +34,7 @@ if baseZ > 0.01 then
   obj.rz = obj.rz - (obj.rz+obj.getvalue("rz")-dz) % baseZ
 end
 
-@透明度 
+@透明度
 --information:透明度@離散化　v0
 --track@base:最小単位(%),0,100,5,0.01
 --track@d:基準(%),-100,100,0,0.01
@@ -90,7 +90,3 @@ else -- 等差数列 d + n*baseにおいて最も近いサイズにする
   end
   obj.zoom = math.max(0, obj.zoom - ((obj.zoom*obj.getvalue("zoom")-d) % base)/obj.getvalue("zoom"))
 end
-
-
-
-
