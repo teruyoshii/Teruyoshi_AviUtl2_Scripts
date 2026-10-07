@@ -1,4 +1,5 @@
---information:パスグラデーション v1.1 by teruyoshi
+--information:パスグラデーション v1.1.1 by teruyoshi
+--label:teruyoshi
 -- Azuriteさんのグラデーション+(https://github.com/azurite581/AviUtl2-GradientPlus)を参考に作成しました
 --track@str:強さ,0,100,100,0.01
 -- P1x,P1y,P2x,P2yの順で制御点を指定
