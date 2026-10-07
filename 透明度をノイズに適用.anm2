@@ -1,4 +1,4 @@
---information:透明度をノイズに適用 v1.1 by teruyoshi | ピクセルごとに透明度を参照し、透明度の確率(ホワイトノイズ)や配列ディザリング・ブルーノイズ・網点等の模様でピクセルの透明度を0/1にすることで、透明度をノイズのように表現します
+--information:透明度をノイズに適用 v1.2 by teruyoshi | ピクセルごとに透明度を参照し、透明度の確率(ホワイトノイズ)や配列ディザリング・ブルーノイズ・網点等の模様でピクセルの透明度を0/1にすることで、透明度をノイズのように表現します
 --label:teruyoshi
 --group:ノイズ設定,true
 --track@str:強さ,0,100,100,0.01
@@ -14,6 +14,7 @@
 --select@blendMode:合成モード=0,通常=0,加算=1,減算=2,乗算=3,スクリーン=4,オーバーレイ=5,比較(明)=6,比較(暗)=7,輝度=8,色差=9,陰影=10,明暗=11,差分=12,アルファ加算=13,アルファ最大値=14,アルファ減算=15,アルファ加算2=16
 --track@seed:シード,0,10000,0,1
 --check@useObjectAlpha:標準描画での透明度も参照する,1
+--check@clearColor:透明な点の色を消す,0 --透明にした点に残る色(暗い背景の上でうっすら光って見える)を消す
 
 
 local MaxResolution = 255 -- グラデーションカーブの解像度
@@ -30,6 +31,7 @@ local BM = {"none", "add", "sub", "mul", "screen", "overlay", "light", "dark", "
     float noiseType; // 選択項目「ノイズの種類」の値(0=ホワイトノイズ)
     float period; // 網点・線の周期
     float patternAngle; // 網点・線の角度(ラジアン)
+    float clearColor; // 透明にした点の色を消すか
     float aCurve[MaxResolution];
   };
   SamplerState samLinear : register(s0);
@@ -171,6 +173,9 @@ local BM = {"none", "add", "sub", "mul", "screen", "overlay", "light", "dark", "
     if (rand < mapped_a) {
       return float4(original.rgb/ObjectAlpha/original.a, 1.0/(ObjectAlpha));
     }
+    if (clearColor == 1) {
+      return float4(0.0, 0.0, 0.0, 0.0);
+    }
     return float4(original.rgb,0.0);
   }
 ]]
@@ -210,7 +215,8 @@ obj.pixelshader("noiseTransparent", "object", "object", {
     ObjectAlpha,
     noiseType,
     period, math.rad(patternAngle),
-    0, 0, -- 配列は16バイトの境界から始まるので、そこまでを埋める
+    clearColor,
+    0, -- 配列は16バイトの境界から始まるので、そこまでを埋める
     unpack(gCurves, 2) -- noiseTypeを足す前と同じ値がaCurveに入るように、gCurves[2]から渡す
   },
   "copy"
