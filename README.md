@@ -1,3 +1,6 @@
+## てるよしが作成した雑多なAviUtl2スクリプト集
+### [wiki](https://github.com/teruyoshii/Teruyoshi_AviUtl2_Scripts/wiki)にそれぞれのスクリプトに関する詳しい説明があります。
+
 ## 既知のバグ
 
 - 簡易シェーダーが全般的にうまく動かない (現状開発途中で投げ出しているので当然ではある)
