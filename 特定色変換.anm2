@@ -1,4 +1,4 @@
---information:特定色変換 v1.0.1 by teruyoshi
+--information:特定色変換 v1.0.2 by teruyoshi
 --label:teruyoshi
 --対象色に近い色のみ変換先色に変換します
 --color@targetColor:対象色,0xffffff
@@ -59,7 +59,6 @@
     }
   }
 ]]
-obj.setoption("drawtarget", "tempbuffer", obj.w, obj.h)
 
 local r,g,b = RGB(targetColor)
 local r2,g2,b2 = RGB(replaceColor)
@@ -73,6 +72,3 @@ obj.pixelshader("ReplaceColor", "object", "object", {
   },
   "copy"
 )
-obj.setoption("blend", "none")
-obj.draw(0,0,0,1.0,1.0)
-obj.copybuffer("obj","tmp")

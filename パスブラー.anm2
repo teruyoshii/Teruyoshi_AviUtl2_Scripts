@@ -1,4 +1,4 @@
---information:パスブラー v1.1 by teruyoshi | オブジェクトをベジェ曲線の形に沿って流す方向ブラー
+--information:パスブラー v1.1.1 by teruyoshi | オブジェクトをベジェ曲線の形に沿って流す方向ブラー
 --label:teruyoshi
 --group:パス設定,false
 -- ベジェ曲線の始点はオブジェクトの中心。各座標はオブジェクト中心からの相対座標
@@ -145,14 +145,22 @@ end
       float aSum = 0.0;    // 透明度×重みの合計
       float aMax = 0.0;
       float4 addSum = 0.0; // 加算用(乗算済みアルファの色×加算時の重みの合計)
-      [loop]
-      for (uint i = 0; i < (uint)count; i++) {
-        float4 o = offs[i];
-        float4 c = tintColor(tex.SampleLevel(samLinear, (pos.xy - o.xy) / size, 0), i);
-        rgbSum += c.rgb * o.z;
-        aSum += c.a * o.z;
-        aMax = max(aMax, c.a * o.z);
-        addSum += c * o.w;
+      float2 invSize = 1.0 / size;
+      if (mode == 1) {
+        [loop]
+        for (uint i = 0; i < (uint)count; i++) {
+          float4 o = offs[i];
+          addSum += tintColor(tex.SampleLevel(samLinear, (pos.xy - o.xy) * invSize, 0), i) * o.w;
+        }
+      } else {
+        [loop]
+        for (uint i = 0; i < (uint)count; i++) {
+          float4 o = offs[i];
+          float4 c = tintColor(tex.SampleLevel(samLinear, (pos.xy - o.xy) * invSize, 0), i) * o.z;
+          rgbSum += c.rgb;
+          aSum += c.a;
+          aMax = max(aMax, c.a);
+        }
       }
       if (mode == 1) {
         // 加算: 重なるほど明るくなる。色が透明度を超えないよう透明度を引き上げる
@@ -198,6 +206,8 @@ end
   }
 ]]
 
+-- 強さ0で曲線も描画しない時は、元の画像のまま
+if str <= 0 and not showBezier then return end
 local P1 = {0, 0}
 local P2 = {p2x, p2y}
 local P3 = {p3x, p3y}

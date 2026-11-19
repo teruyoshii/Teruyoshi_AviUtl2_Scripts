@@ -1,4 +1,4 @@
---information:パスグラデーション v1.2 by teruyoshi | ベジェ曲線に沿って色が変わるグラデーション
+--information:パスグラデーション v1.2.1 by teruyoshi | ベジェ曲線に沿って色が変わるグラデーション
 --label:teruyoshi
 -- Azuriteさんのグラデーション+(https://github.com/azurite581/AviUtl2-GradientPlus)を参考に作成しました
 --group:パス設定,false
@@ -187,8 +187,9 @@ end
     float blurWidth;
     float distWidth;
     float2 padding;
-    float gCurve[MaxResolution + 1];
+    float4 gCurve4[(MaxResolution + 4) / 4]; // 時間制御のカーブ。floatの配列は1要素が16バイトになるので、4個ずつ詰めて格納
   };
+  float gCurveAt(uint k) { return gCurve4[k >> 2][k & 3]; }
   SamplerState samLinear : register(s0);
   struct PS_INPUT {
     float4 pos : SV_Position;
@@ -292,7 +293,7 @@ end
     float softMin = 1e9;
     float sigma = max(blurWidth, 0.01);
     float2 prevPoint = p1;
-    uint n = (uint)resolution;
+    uint n = (shape == 3 && showBezier != 1) ? 0 : (uint)resolution; // 直交は折れ線を使わない(曲線を描画する時だけ使う)
     for (uint i = 0; i <= n; i++) {
       float t = i / resolution;
       float u = 1.0 - t;
@@ -333,7 +334,7 @@ end
     // 位置が連続なので、グラデ曲線も隣の値との間を補間して引く
     float x = saturate(pos) * MaxResolution;
     uint xi = min((uint)x, MaxResolution - 1);
-    float mapped_minPosition = lerp(gCurve[xi], gCurve[xi + 1], x - xi);
+    float mapped_minPosition = lerp(gCurveAt(xi), gCurveAt(xi + 1), x - xi);
 
     if (minDist < 10 && showBezier == 1) {
       return float4(bezierColor, 1.0);
@@ -358,12 +359,12 @@ end
 --ｸﾞﾗﾃﾞ曲線からグラデーションカーブの配列を作成
 local gCurves = {}
 if obj.getoption("track_mode", "3") == 0 then -- 時間制御が設定されていない場合は直線移動とみなす
-  for i = 0, MaxResolution*4 do
-    gCurves[i] = i/(MaxResolution*4)
+  for i = 0, MaxResolution do
+    gCurves[i] = i/MaxResolution
   end
 else
-  for i = 0, MaxResolution*4 do
-    gCurves[i] = obj.getvalue(3,(obj.totaltime-1/obj.framerate)*i/(MaxResolution*4))/100
+  for i = 0, MaxResolution do
+    gCurves[i] = obj.getvalue(3,(obj.totaltime-1/obj.framerate)*i/MaxResolution)/100
   end
 end
 
