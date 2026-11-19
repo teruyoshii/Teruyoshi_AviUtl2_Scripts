@@ -1,0 +1,352 @@
+--information:極座標変換_Te v1.1.0 by teruyoshi | 中心・角度範囲・半径範囲・変換元の範囲を指定でき、逆変換やアンチエイリアス無しにも対応した極座標変換
+--label:teruyoshi
+--track@amount:変換度,-100,100,100,0.01
+-- 100=極座標変換(長方形→円)、-100=逆変換(円→長方形)、0=変換なし。途中の値では長方形を曲げながら円にしていく
+--track@cpx:中心X,-4000,4000,0,0.01
+--track@cpy:中心Y,-4000,4000,0,0.01
+--trackgroup@cpx,cpy:中心
+-- 円の中心。オブジェクトの中心からの相対座標
+--track@angMin:最小角度,-3600,3600,0,0.01
+--track@angMax:最大角度,-3600,3600,360,0.01
+-- 角度は12時の方向から時計回り。画像の右端が最小角度、左端が最大角度になる(標準の極座標変換と同じ向き)
+--track@rMin:最小半径,0,4000,0,0.01
+--track@rMax:最大半径,0,4000,200,0.01
+-- 画像の上端が最小半径、下端が最大半径になる
+--track@srcMinX:最小X,-1000,1000,0,0.01
+--track@srcMaxX:最大X,-1000,1000,100,0.01
+--track@srcMinY:最小Y,-1000,1000,0,0.01
+--track@srcMaxY:最大Y,-1000,1000,100,0.01
+-- 変換元にする範囲。画像の左下を0、右上を100とする割合(%)で、Yは上が正。最小Xが最大角度側、最大Yが最小半径側になる。逆変換には効かない
+--select@outMode:範囲外の扱い=0,クリッピングする=0,X+(右)・Y+(上)を優先=1,X-(左)・Y+(上)を優先=2,X+(右)・Y-(下)を優先=3,X-(左)・Y-(下)を優先=4
+-- 変換元の範囲の外も描く時、同じ場所に重なる点のうちどの方向の点を手前にするか。範囲内の点は常に最も手前。Y+側は半径0を越えると反対側へ回り込む
+-- 最大Xと最小Xの差を小さくすると、1周に使う幅が狭くなり、画像の続きが次の周へ続いて複数回転する(例: 0と25で4回転)
+--track@rot:回転,-3600,3600,0,0.01
+--track@twist:渦巻,-20,20,0,0.001
+-- 最小半径から最大半径までの間にねじる回転数
+--check@aa:アンチエイリアス,true
+-- オフにすると色を混ぜず、最も近い点の色をそのまま使う
+--check@guide:範囲を表示,true
+
+local TAU = 2 * math.pi
+local function wrapPi(a) return a - TAU * math.floor((a + math.pi) / TAU) end
+
+-- 中心のアンカー。呼び出し順を変えないよう、条件分岐させずに毎回最初に呼ぶ
+obj.setanchor("cpx,cpy", 0)
+
+local dPhi = math.rad(angMax - angMin)
+if math.abs(dPhi) < 1e-4 then dPhi = dPhi < 0 and -1e-4 or 1e-4 end
+local phiStart = math.rad(angMax + rot) -- 画像の左端(x=0)の角度
+local dR = rMax - rMin
+local tw2pi = twist * TAU
+
+-- 円の形(変換後の状態)の点。x,vは画像の中の位置(0~1)、戻り値はオブジェクトの中心からの座標
+local function polarPoint(x, v)
+  local r = rMin + v * dR
+  local a = phiStart - x * dPhi + tw2pi * v
+  return cpx + r * math.sin(a), cpy - r * math.cos(a)
+end
+
+-- 範囲のガイド(円弧と端の線)。線だけの呼び出しなので条件分岐させてよい
+if guide then
+  local n = math.max(8, math.min(256, math.ceil(math.abs(dPhi) / TAU * 96)))
+  for _, v in ipairs({0, 1}) do
+    local t = {}
+    for i = 0, n do
+      local x, y = polarPoint(i / n, v)
+      t[#t + 1] = x
+      t[#t + 1] = y
+    end
+    obj.setanchor(t, n + 1, "line", "color", 0xa0c0ff)
+  end
+  if math.abs(math.abs(dPhi) - TAU) > 1e-3 or twist ~= 0 then
+    for _, x in ipairs({0, 1}) do
+      local t = {}
+      for i = 0, 16 do
+        local px, py = polarPoint(x, i / 16)
+        t[#t + 1] = px
+        t[#t + 1] = py
+      end
+      obj.setanchor(t, 17, "line", "color", x == 0 and 0xffa0a0 or 0xa0ffa0)
+    end
+  end
+end
+
+if amount == 0 then return end
+
+local inverse = amount < 0
+local srcW, srcH = obj.w, obj.h
+if srcW <= 0 or srcH <= 0 then return end
+
+-- 変換元の範囲を、画像の左上を0、右下を1とする割合にしたもの
+local rxL, rxR = srcMinX / 100, srcMaxX / 100
+local ryT, ryB = 1 - srcMaxY / 100, 1 - srcMinY / 100
+if math.abs(rxR - rxL) < 1e-4 then rxR = rxL + 1e-4 end
+if math.abs(ryB - ryT) < 1e-4 then ryB = ryT + 1e-4 end
+local extendOut = outMode ~= 0 and not inverse
+
+-- 曲げる紙(シート)の大きさ。順変換は変換元の範囲、逆変換は切り開いた後の長方形
+local rMid = (rMin + rMax) / 2
+local Ws, Hs
+if inverse then
+  Ws = math.max(1, math.floor(math.abs(rMid * dPhi) + 0.5))
+  Hs = math.max(1, math.floor(math.abs(dR) + 0.5))
+else
+  Ws = math.max(1, srcW * math.abs(rxR - rxL))
+  Hs = math.max(1, srcH * math.abs(ryB - ryT))
+end
+
+-- 曲げ具合s: 0=平らな長方形(オブジェクトの中心に置く)、1=円の形
+-- 逆変換は円の形(元の画像のまま)から平らな長方形へ開いていく
+local a = math.abs(amount) / 100
+local s = inverse and (1 - a) or a
+local flat = s < 1e-4
+
+-- 曲げた状態: 曲げの中心C、全体の角度Phi、真ん中の行の半径rhoM、厚みT、真ん中の列の向きpsiC
+local Phi = s * dPhi
+local T = Hs + (dR - Hs) * s
+local psi1 = phiStart - 0.5 * dPhi + tw2pi * 0.5 -- 円の形での、真ん中の点の向き
+psi1 = math.pi + wrapPi(psi1 - math.pi) -- 平らな状態の向き(真下=π)から近い方へ回す
+local psiC = math.pi + (psi1 - math.pi) * s
+-- 平らな状態では、変換元の範囲を元の画像と同じ位置に置く(変換度0との間で画像が飛ばないように)
+local ox, oy = 0, 0
+if not inverse then
+  ox = ((rxL + rxR) / 2 - 0.5) * srcW
+  oy = ((ryT + ryB) / 2 - 0.5) * srcH
+end
+local rhoM, Cx, Cy = 0, ox, oy
+if not flat then
+  -- 真ん中の行の長さを、平らな長さから円周の長さへ補間する
+  local Lm = (1 - s) * Ws + s * math.abs(rMid * dPhi)
+  rhoM = Lm / math.abs(Phi)
+  local mx, my = polarPoint(0.5, 0.5)
+  local qx, qy = ox + s * (mx - ox), oy + s * (my - oy) -- 真ん中の点は、平らな状態の位置から円の形での位置へ動く
+  Cx = qx - rhoM * math.sin(psiC)
+  Cy = qy + rhoM * math.cos(psiC)
+end
+if flat then T = Hs end
+
+local function sheetPoint(x, v)
+  if flat then return ox + (x - 0.5) * Ws, oy + (v - 0.5) * Hs end
+  local rho = rhoM + (v - 0.5) * T
+  local ang = psiC + (0.5 - x) * Phi + tw2pi * s * (v - 0.5)
+  return Cx + rho * math.sin(ang), Cy - rho * math.cos(ang)
+end
+
+-- 出力の大きさ: 曲げたシートの外周から求める。オブジェクトの中心は動かさないので上下左右で対称にする
+local ex, ey = 0, 0
+local function extend(x, v)
+  local px, py = sheetPoint(x, v)
+  ex = math.max(ex, math.abs(px))
+  ey = math.max(ey, math.abs(py))
+end
+for i = 0, 256 do
+  extend(i / 256, 0)
+  extend(i / 256, 1)
+end
+for i = 1, 31 do
+  extend(0, i / 32)
+  extend(1, i / 32)
+end
+-- 範囲の外も描く時は、画像全体が収まる大きさにする。turnsは画像全体を描くのに要る周の数
+local turns = 0
+if extendOut then
+  local x0, x1 = -rxL / (rxR - rxL), (1 - rxL) / (rxR - rxL)
+  local v0, v1 = -ryT / (ryB - ryT), (1 - ryT) / (ryB - ryT)
+  if flat then
+    extend(x0, v0)
+    extend(x1, v1)
+  elseif math.abs(x1 - x0) * math.abs(Phi) < TAU then
+    -- 一周に満たなければ外周から求める(変換度が小さいと曲げの半径が巨大なので、円で見積もると大きくなりすぎる)
+    for i = 0, 256 do
+      extend(x0 + (x1 - x0) * i / 256, v0)
+      extend(x0 + (x1 - x0) * i / 256, v1)
+      extend(x0, v0 + (v1 - v0) * i / 256)
+      extend(x1, v0 + (v1 - v0) * i / 256)
+    end
+  else
+    local rho = math.max(math.abs(rhoM + (v0 - 0.5) * T), math.abs(rhoM + (v1 - 0.5) * T))
+    ex = math.max(ex, math.abs(Cx) + rho)
+    ey = math.max(ey, math.abs(Cy) + rho)
+  end
+  if not flat then
+    turns = math.min(32, math.ceil(math.max(math.abs(x0), math.abs(x1)) * math.abs(Phi) / TAU) + 1)
+  end
+end
+local maxW, maxH = obj.getinfo("image_max")
+local outW = math.min(maxW, 2 * math.ceil(ex + 2))
+local outH = math.min(maxH, 2 * math.ceil(ey + 2))
+
+local fullCircle = math.abs(math.abs(Phi) - TAU) < 1e-3
+
+-- 色を取る時に、変換元の範囲の端で止めるピクセルの番号。範囲が画像の外へ出ていれば-1か画像の大きさ(透明)まで
+local function indexRange(a, b, size)
+  local lo = math.floor(math.min(a, b) * size)
+  local hi = math.ceil(math.max(a, b) * size) - 1
+  return math.max(-1, math.min(size, lo)), math.max(-1, math.min(size, hi))
+end
+local loX, hiX = indexRange(rxL, rxR, srcW)
+local loY, hiY = indexRange(ryT, ryB, srcH)
+-- 画像の幅全体でちょうど一周の時は続きの周が無いので、横をループさせて継ぎ目を消す
+local loopX = extendOut and fullCircle and loX == 0 and hiX == srcW - 1
+if loopX then turns = 0 end
+-- 優先する方向を、シートの中の位置(x,v)の増える向きに直したもの。Y+(上)はvの減る向き
+local preferX = (outMode == 1 or outMode == 3) and 1 or -1
+local preferY = outMode <= 2 and 1 or -1
+if rxR < rxL then preferX = -preferX end
+local preferV = ryB > ryT and -preferY or preferY
+
+--[[pixelshader@polarTe:
+  Texture2D src : register(t0);
+  cbuffer constant0 : register(b0) {
+    float4 c0; // 出力の半分の大きさxy, 元の画像の大きさzw
+    float4 c1; // x=逆変換, y=アンチエイリアス, z=平ら, w=一周ちょうど
+    float4 c2; // 曲げの中心xy, z=真ん中の列の向きpsiC, w=全体の角度Phi
+    float4 c3; // x=真ん中の行の半径rhoM, y=厚みT, zw=シートの大きさ
+    float4 c4; // x=曲げた状態の渦巻(ラジアン), y=円の形の渦巻(ラジアン), zw=円の中心
+    float4 c5; // x=最小半径, y=半径の幅, z=左端の角度, w=角度の幅
+    float4 c6; // xy=変換元の範囲の始点(ピクセル), zw=変換元の範囲の大きさ(ピクセル)
+    float4 c7; // xy=端で止めるピクセルの番号の最小, zw=最大
+    float4 c8; // x=範囲の外も描く, y=優先するxの向き, z=優先するvの向き, w=横をループ
+    float4 c9; // x=前後に描く周の数
+  };
+  static const float PI = 3.14159265;
+  static const float TAU = 6.28318531;
+
+  // mode: 0=範囲外は透明, 1=端の色で延長, 2=横はループ・縦は端の色で延長, 3=横はループ・縦は画像の外が透明
+  float4 fetch(int2 i, int mode) {
+    int2 size = (int2)c0.zw;
+    int2 lo = (int2)c7.xy;
+    int2 hi = (int2)c7.zw;
+    if (mode >= 2) {
+      int w = hi.x - lo.x + 1;
+      i.x = lo.x + (int)((i.x - lo.x) - w * floor((float)(i.x - lo.x) / w));
+    }
+    if (mode == 1 || mode == 2) i = clamp(i, lo, hi);
+    bool outside = i.x < 0 || i.y < 0 || i.x >= size.x || i.y >= size.y;
+    return outside ? float4(0, 0, 0, 0) : src.Load(int3(i, 0));
+  }
+
+  // tcは元の画像のピクセル座標(左上が0)
+  float4 sampleAt(float2 tc, int mode) {
+    float4 col;
+    if (c1.y > 0.5) {
+      float2 t = tc - 0.5;
+      float2 i0 = floor(t);
+      float2 f = t - i0;
+      int2 i = (int2)i0;
+      float4 top = lerp(fetch(i, mode), fetch(i + int2(1, 0), mode), f.x);
+      float4 bottom = lerp(fetch(i + int2(0, 1), mode), fetch(i + int2(1, 1), mode), f.x);
+      col = lerp(top, bottom, f.y);
+    } else {
+      col = fetch((int2)floor(tc), mode);
+    }
+    return col;
+  }
+
+  // 端までの距離(ピクセル)から覆う割合を求める。アンチエイリアス無しは内側かどうかだけ
+  float coverage(float dist) {
+    return c1.y > 0.5 ? saturate(dist + 0.5) : (dist >= 0 ? 1.0 : 0.0);
+  }
+
+  // シートの中の位置(x,v)の色
+  float4 sheetColor(float x, float v) {
+    float4 col;
+    if (c1.x > 0.5) {
+      // 逆変換: 円の形の上の点を元の画像から取る
+      float r = c5.x + v * c5.y;
+      float a = c5.z - x * c5.w + c4.y * v;
+      float sa, ca;
+      sincos(a, sa, ca);
+      float2 q = c4.zw + r * float2(sa, -ca);
+      col = sampleAt(q + c0.zw * 0.5, 0);
+    } else {
+      int mode = c8.x > 0.5 ? (c8.w > 0.5 ? 3 : 0) : (c1.w > 0.5 ? 2 : 1);
+      col = sampleAt(c6.xy + float2(x, v) * c6.zw, mode);
+    }
+    return col;
+  }
+
+  // 範囲の中か外か。0=範囲内, 1=優先する向きの外, 2=その反対の外
+  int outRank(float t, float prefer) {
+    return (t >= 0 && t <= 1) ? 0 : ((t - 0.5) * prefer > 0 ? 1 : 2);
+  }
+
+  float4 polarTe(float4 pos : SV_Position) : SV_Target {
+    float2 p = pos.xy - c0.xy;
+    bool isFlat = c1.z > 0.5;
+    bool full = c1.w > 0.5;
+    float v, rho, delta;
+    float psi = 0;
+    if (isFlat) {
+      v = (p.y - c2.y) / c3.w + 0.5;
+      rho = 0;
+      delta = 0;
+    } else {
+      float2 d = p - c2.xy;
+      rho = length(d);
+      v = (rho - c3.x) / c3.y + 0.5;
+      psi = atan2(d.x, -d.y);
+      delta = psi - c2.z - c4.x * (v - 0.5);
+      delta = delta - TAU * floor((delta + PI) / TAU);
+    }
+    float covV = coverage(min(v, 1 - v) * abs(c3.y));
+    float4 acc = float4(0, 0, 0, 0);
+    // 角度の幅が一周を超える場合は、重なった各周を順に重ねる
+    [loop]
+    for (int k = -8; k <= 8; k++) {
+      bool use = isFlat ? (k == 0) : true;
+      float x = isFlat ? ((p.x - c2.x) / c3.z + 0.5) : (0.5 - (delta + TAU * k) / c2.w);
+      float lenX = isFlat ? c3.z : abs(c2.w) * rho;
+      float covX = full ? ((x >= 0 && x < 1) ? 1.0 : 0.0) : coverage(min(x, 1 - x) * lenX);
+      float cov = covX * covV;
+      if (use && cov > 0) {
+        float4 col = sheetColor(x, v) * cov;
+        acc = col + acc * (1 - col.a);
+      }
+    }
+    if (c8.x > 0.5) {
+      // 範囲の外の点を、範囲内に近い順・優先する向きの順に、これまでの色の奥へ重ねる
+      // 同じ場所に重なるのは、角度が一周違う点と、半径の符号が逆で反対側にある点
+      float period = isFlat ? 0 : TAU / abs(c2.w);
+      int turns = (int)c9.x;
+      [loop]
+      for (int rank = 0; rank <= 4; rank++) {
+        [loop]
+        for (int sg = 0; sg < (isFlat ? 1 : 2); sg++) {
+          float vs = sg == 0 ? v : (-rho - c3.x) / c3.y + 0.5;
+          int xRank = rank - outRank(vs, c8.z);
+          if (xRank >= 0 && xRank <= 2 && !(rank == 0 && sg == 0)) {
+            float xb = (p.x - c2.x) / c3.z + 0.5;
+            if (!isFlat) {
+              xb = 0.5 - (psi + PI * sg - c2.z - c4.x * (vs - 0.5)) / c2.w;
+              xb = xb - period * floor(xb / period);
+            }
+            float dir = xRank == 2 ? -c8.y : c8.y;
+            [loop]
+            for (int i = -turns; i <= turns; i++) {
+              float xi = xb + dir * i * period;
+              int xr = c8.w > 0.5 ? 0 : outRank(xi, c8.y);
+              if (xr == xRank && acc.a < 0.999) acc += sheetColor(xi, vs) * (1 - acc.a);
+            }
+          }
+        }
+      }
+    }
+    return acc;
+  }
+]]
+
+obj.copybuffer("cache:polarTe_src", "object")
+obj.clearbuffer("object", outW, outH)
+obj.pixelshader("polarTe", "object", "cache:polarTe_src", {
+  outW / 2, outH / 2, srcW, srcH,
+  inverse and 1 or 0, aa and 1 or 0, flat and 1 or 0, fullCircle and 1 or 0,
+  Cx, Cy, psiC, Phi,
+  rhoM, T, Ws, Hs,
+  tw2pi * s, tw2pi, cpx, cpy,
+  rMin, dR, phiStart, dPhi,
+  rxL * srcW, ryT * srcH, (rxR - rxL) * srcW, (ryB - ryT) * srcH,
+  loX, loY, hiX, hiY,
+  extendOut and 1 or 0, preferX, preferV, loopX and 1 or 0,
+  turns, 0, 0, 0,
+}, "copy")

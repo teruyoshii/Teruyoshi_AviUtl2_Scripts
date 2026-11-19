@@ -1,0 +1,100 @@
+--information:密度カーブ v1.2.1 by teruyoshi | 時間制御カーブでオブジェクトの任意角度方向のサンプリング密度を変化させます
+--label:teruyoshi
+--track@strength:適用度,0,100,100,0.01
+--track@angle:角度,-3600,3600,0,0.01
+--track@curve:🕒️密度カーブ,0,100,0,0.01
+--check@invert:左右反転,false
+--check@autoExpand:自動で領域拡張,false
+--select@edge:境界処理=0,透明=0,クランプ=1,ミラー=2,ループ=3
+
+local MaxResolution = 2047 -- LUTの解像度(0~2047の2048段階、1920px等の一般的な横幅をカバー)。シェーダー側と対応させる
+-- cbufferのfloat配列はHLSLの仕様で各要素が16バイト(float4)境界にパディングされ、
+-- floatを1個ずつ渡すと3/4が無駄になる。float4に4個ずつパッキングして渡すことでこれを回避する。
+local SAMPLERS = {"clip", "clamp", "mirror", "loop"}
+
+-- 密度カーブから、軸位置(0~1)→サンプリングする元画像側の位置(0~1)のLUTを作成
+-- 適用度(strength)で恒等写像とブレンドし、時間変化で効果を出し入れしやすくする
+local blend = strength / 100
+local gCurve = {}
+if obj.getoption("track_mode", "curve") == 0 then
+  -- 時間制御が未設定(移動無し)の場合は恒等写像でフォールバック(invertはここにも適用する)
+  for i = 0, MaxResolution do
+    local raw = i / MaxResolution
+    local idx = invert and (MaxResolution - i) or i
+    local curveVal = idx / MaxResolution
+    gCurve[i] = raw + (curveVal - raw) * blend
+  end
+else
+  -- 8点おきにだけ値を取り、間は線形補間する(2048回→257回)
+  local STEP = 8
+  local samples = {}
+  local T = obj.totaltime - 1/obj.framerate
+  for j = 0, MaxResolution + 1, STEP do
+    local idx = math.min(j, MaxResolution)
+    samples[j] = obj.getvalue("track.curve", T * idx/MaxResolution) / 100
+  end
+  for i = 0, MaxResolution do
+    local raw = i / MaxResolution
+    local idx = invert and (MaxResolution - i) or i
+    local j0 = idx - idx % STEP
+    local f = (idx - j0) / STEP
+    local curveVal = samples[j0] + (samples[j0 + STEP] - samples[j0]) * f
+    gCurve[i] = raw + (curveVal - raw) * blend
+  end
+end
+
+local rad = math.rad(angle)
+
+-- 斜め方向に伸縮すると、回転軸の投影幅(extent)が0.5を超える分だけ対角部分が元のキャンバス範囲外に
+-- はみ出す。はみ出す最大量を幾何学的に計算し、"領域拡張"フィルタでキャンバスを事前に広げておく
+-- (出典: `グロー_Te.anm2`の領域拡張の使い方)。scaleX,scaleYは拡張後キャンバスに対する元画像の比率で、
+-- シェーダー側の座標正規化に使う(拡張しない場合は1,1)。
+local origW, origH = obj.w, obj.h
+local scaleX, scaleY = 1, 1
+if autoExpand then
+  local extent = 0.5 * (math.abs(math.cos(rad)) + math.abs(math.sin(rad)))
+  local marginFraction = math.max(0, 2 * extent * extent - 0.5)
+  local marginX = origW * marginFraction
+  local marginY = origH * marginFraction
+  obj.effect("領域拡張", "上", marginY, "下", marginY, "左", marginX, "右", marginX)
+  scaleX = origW / obj.w
+  scaleY = origH / obj.h
+end
+
+--[[pixelshader@densityCurve:
+  static const uint MaxResolution = 2047; // Lua側のMaxResolutionと同じ値にすること
+  static const uint PackedCount = (MaxResolution + 1) / 4; // LUTをfloat4に4個ずつパッキングした個数
+  Texture2D tex : register(t0);
+  cbuffer constant0 : register(b0) {
+    // misc.x=角度(ラジアン), misc.yz=領域拡張前後のサイズ比(拡張無しなら1,1)。
+    // float4はパディング無しで16バイトぴったりなので後続配列との境界が自明になる
+    float4 misc;
+    float4 gCurve[PackedCount];
+  };
+  SamplerState samLinear : register(s0);
+
+  float4 densityCurve(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target {
+    float s, c;
+    sincos(misc.x, s, c);
+    // 領域拡張分を打ち消し、元画像の範囲がちょうど[-0.5,0.5]になるよう正規化する
+    float2 p = (uv - 0.5) / misc.yz;
+    float2 pm = float2(p.x, -p.y); // uv.yの下向き正を数学慣習(上向き正)に変換
+    float a = pm.x * c + pm.y * s; // 角度方向の座標(0度=x軸、90度=y軸、45度=右上方向)
+    float b = -pm.x * s + pm.y * c; // 直交方向の座標(変換しない)
+    float extent = 0.5 * (abs(c) + abs(s)); // 単位正方形をこの角度方向へ投影した半幅
+    float rawT = a / (2 * extent) + 0.5;
+    float t = saturate(rawT);
+    uint i = (uint)floor(t * MaxResolution-1);
+    float tMapped = gCurve[i / 4][i % 4]; // 4個パッキングした中から該当成分を取り出す
+    // 領域拡張の余白などでrawTが[0,1]をはみ出す場合、境界値に固定(=1点に潰れて縞模様になる)せず
+    // 傾き1でそのまま線形に延長する。overflowは0(範囲内)以外は境界超過分
+    float overflow = rawT - t;
+    if (abs(overflow) > 0.01) return float4(0, 0, 0, 0); // 透明
+    float aMapped = (tMapped - 0.5 + overflow) * (2 * extent);
+    float2 pm2 = float2(aMapped * c - b * s, aMapped * s + b * c); // 角度方向の座標系から元へ逆回転
+    float2 p2 = float2(pm2.x, -pm2.y);
+    return tex.SampleLevel(samLinear, p2 * misc.yz + 0.5, 0);
+  }
+]]
+
+obj.pixelshader("densityCurve", "object", "object", {rad, scaleX, scaleY, 0, unpack(gCurve)}, "copy", SAMPLERS[edge + 1])

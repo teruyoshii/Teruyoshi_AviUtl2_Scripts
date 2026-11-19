@@ -1,0 +1,128 @@
+--information:矩形ループ_Te v1.0 by teruyoshi | 指定した矩形の外に出た部分を反対側へループさせます。
+--label:teruyoshi
+--group:矩形,true
+--track@x1:頂点1X,-10000,10000,-100,0.01
+--track@y1:頂点1Y,-10000,10000,-100,0.01
+--trackgroup@x1,y1:頂点1
+--track@x2:頂点2X,-10000,10000,100,0.01
+--track@y2:頂点2Y,-10000,10000,100,0.01
+--trackgroup@x2,y2:頂点2
+--check@guide:範囲を表示,true
+--group:重ね順,true
+--select@orderX:左右=0,中心優先(左)=0,中心優先(右)=1,左優先=2,右優先=3
+--select@orderY:上下=0,中心優先(上)=0,中心優先(下)=1,上優先=2,下優先=3
+
+local MAX_TILES = 4096
+
+obj.setanchor("x1,y1", 0)
+obj.setanchor("x2,y2", 0)
+
+-- 矩形の端をピクセルに揃える
+local left = math.floor(math.min(x1, x2) + 0.5)
+local right = math.floor(math.max(x1, x2) + 0.5)
+local top = math.floor(math.min(y1, y2) + 0.5)
+local bottom = math.floor(math.max(y1, y2) + 0.5)
+
+if guide then
+  obj.setanchor({left, top, right, top, right, bottom, left, bottom}, 4, "loop", "color", 0xa0c0ff)
+end
+
+local rectW, rectH = right - left, bottom - top
+local maxW, maxH = obj.getinfo("image_max")
+if rectW < 1 or rectH < 1 or rectW > maxW or rectH > maxH or obj.w <= 0 or obj.h <= 0 then return end
+
+-- 画面上の位置と回転・拡大の基準値を計算
+local baseX, baseY = obj.getvalue("x"), obj.getvalue("y")
+local baseRx, baseRy, baseRz = obj.getvalue("rx"), obj.getvalue("ry"), obj.getvalue("rz")
+local baseSx, baseSy = obj.getvalue("sx"), obj.getvalue("sy")
+local baseCx, baseCy = obj.getvalue("cx"), obj.getvalue("cy")
+local scaleX = baseSx * obj.sx * obj.zoom
+local scaleY = baseSy * obj.sy * obj.zoom
+if baseSx == 0 or baseSy == 0 or scaleX == 0 or scaleY == 0 then return end
+
+local posX, posY = baseX + obj.ox, baseY + obj.oy
+local centerX, centerY = baseCx + obj.cx, baseCy + obj.cy
+local radX = math.rad(baseRx + obj.rx)
+local radY = math.rad(baseRy + obj.ry)
+local radZ = math.rad(baseRz + obj.rz)
+
+-- 回転と拡大を適用した四隅を計算
+local function corner(px, py)
+  local dx, dy = (px - centerX) * scaleX, (py - centerY) * scaleY
+  local dz = 0
+  local c, s = math.cos(radZ), math.sin(radZ)
+  dx, dy = dx * c - dy * s, dx * s + dy * c
+  c, s = math.cos(radY), math.sin(radY)
+  dx, dz = dx * c + dz * s, dz * c - dx * s
+  c, s = math.cos(radX), math.sin(radX)
+  dy = dy * c - dz * s
+  return dx + posX - (left + right) / 2, dy + posY - (top + bottom) / 2
+end
+local w, h = obj.w, obj.h
+local cx0, cy0 = corner(-w / 2, -h / 2)
+local cx1, cy1 = corner(w / 2, -h / 2)
+local cx2, cy2 = corner(w / 2, h / 2)
+local cx3, cy3 = corner(-w / 2, h / 2)
+
+-- 周回番号。矩形の中にそのまま入っている部分を0とし、左上が負、右下が正になる
+local function tileRange(a, b, c, d, size)
+  local lo = math.min(a, b, c, d) / size + 0.5
+  local hi = math.max(a, b, c, d) / size + 0.5
+  return math.floor(lo), math.ceil(hi) - 1
+end
+local loX, hiX = tileRange(cx0, cx1, cx2, cx3, rectW)
+local loY, hiY = tileRange(cy0, cy1, cy2, cy3, rectH)
+
+-- 奥から手前の順に並べる。mode: 0=中心優先(負) 1=中心優先(正) 2=負を優先 3=正を優先
+local function backToFront(lo, hi, mode)
+  local list = {}
+  for n = lo, hi do list[#list + 1] = n end
+  local function rank(n)
+    if mode == 0 then return math.abs(n) * 2 + (n > 0 and 1 or 0) end
+    if mode == 1 then return math.abs(n) * 2 + (n < 0 and 1 or 0) end
+    return mode == 2 and n or -n
+  end
+  table.sort(list, function(a, b) return rank(a) > rank(b) end)
+  return list
+end
+
+local tileCount = (hiX - loX + 1) * (hiY - loY + 1)
+if tileCount > MAX_TILES then
+  print("@warn", "矩形ループ_Te: 折り返しの数が多すぎるため描画を省略しました(" .. tileCount .. "個)。矩形を大きくしてください。")
+  return
+end
+
+local quads = {}
+local listX = backToFront(loX, hiX, orderX)
+for _, ny in ipairs(backToFront(loY, hiY, orderY)) do
+  local shiftY = -ny * rectH
+  for _, nx in ipairs(listX) do
+    local shiftX = -nx * rectW
+    quads[#quads + 1] = {
+      cx0 + shiftX, cy0 + shiftY, 0,
+      cx1 + shiftX, cy1 + shiftY, 0,
+      cx2 + shiftX, cy2 + shiftY, 0,
+      cx3 + shiftX, cy3 + shiftY, 0,
+      0, 0, w, 0, w, h, 0, h,
+    }
+  end
+end
+
+-- 画像を作る間だけ合成モードを通常にする
+local blend = obj.getoption("blend")
+obj.setoption("blend", "none")
+obj.setoption("sampler", "clip")
+obj.setoption("drawtarget", "tempbuffer", rectW, rectH)
+obj.drawpoly(quads)
+obj.copybuffer("object", "tempbuffer")
+obj.setoption("drawtarget", "framebuffer")
+obj.setoption("sampler")
+obj.setoption("blend", blend)
+
+-- 画面上で等倍・無回転になるように回転と拡大を打ち消し、矩形の中心へ置く
+obj.ox = (left + right) / 2 - baseX
+obj.oy = (top + bottom) / 2 - baseY
+obj.rx, obj.ry, obj.rz = -baseRx, -baseRy, -baseRz
+obj.zoom = 1
+obj.sx, obj.sy = 1 / baseSx, 1 / baseSy
+obj.cx, obj.cy = -baseCx, -baseCy
