@@ -1,6 +1,5 @@
---information:特定色抽出 v1.0.2 by teruyoshi
+--information:特定色抽出 v1.0.3 by teruyoshi | 対象色に近い色のみ表示し、それ以外の色を透明化します
 --label:teruyoshi
---対象色に近い色のみ表示し、それ以外の色を透明化します
 --color@targetColor:対象色,0xffffff
 --Group:抽出範囲設定
 --track@hueRange:色相範囲,0,360,5,0.01

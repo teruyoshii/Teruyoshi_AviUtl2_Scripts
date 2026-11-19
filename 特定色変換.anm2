@@ -1,6 +1,5 @@
---information:特定色変換 v1.0.2 by teruyoshi
+--information:特定色変換 v1.0.3 by teruyoshi | 対象色に近い色のみ変換先色に変換します
 --label:teruyoshi
---対象色に近い色のみ変換先色に変換します
 --color@targetColor:対象色,0xffffff
 --color@replaceColor:変換先色,0xff0000
 --Group:抽出範囲設定
